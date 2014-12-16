@@ -1,0 +1,10 @@
+#rm(list=ls())
+#detach("package:MASS")
+library(MASS)
+library(plyr)
+library(ggplot2)
+library(GGally)
+library(reshape2)
+library(dplyr)
+
+library(ISLR)

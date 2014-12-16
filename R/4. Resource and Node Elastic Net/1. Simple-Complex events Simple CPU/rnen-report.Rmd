@@ -1,0 +1,105 @@
+---
+title: "CPU and Node Aware Elastic Net"
+author: "L3P3"
+date: "Thursday, November 13, 2014"
+output: pdf_document
+---
+
+  This document summarizes the first approach in order to expand the node aware elastic net regularized predictor v3 to include resource awareness. This first iteration adds a column to each input matrix consisting on the cpu value for the predicted node for each training instance time. The whole model creation is described in the file "rnen.R", found in the private L3P3 Github repository. The models are exported in a variable called "models_sc", which is a list of all the combinations of nodes and events in the system, containing each one the best created model for each event. 
+
+```{r}
+require(ggplot2)
+load("data.Rdata")
+```
+
+Our objective is now to study the performance of this models. To do so, we're going to create a matrix where the rows are the system nodes and the columns are the events that happened on the system. The coefficients of the matrix will be the f-score of each model in each node.
+```{r,echo=FALSE}
+#take out NO.EVENTS model:
+models_sc[[614]]<-NULL
+split_names<-strsplit(names(models_sc),"-")
+nodes<-character()
+events<-character()
+for (i in 1:length(split_names)){
+if (length(split_names[[i]]==2)){
+nodes[[i]]<-split_names[[i]][1]
+events[[i]]<-split_names[[i]][2]
+}
+if (length(split_names[[i]])>2){
+events[[i]]<-split_names[[i]][length(split_names[[i]])]
+for (j in 1:(length(split_names[[i]])-2)){
+nodes[[i]]<-paste(split_names[[i]][j],split_names[[i]][j+1],sep="-")
+}
+}
+}
+complete_nodes<-nodes
+complete_events<-events
+nodes<-sort(unique(nodes))
+events<-sort(unique(events))
+```
+
+```{r,echo=FALSE}
+model_matrix<-matrix(nrow=length(nodes),ncol=length(events))
+colnames(model_matrix)<-events
+rownames(model_matrix)<-nodes
+for (i in 1:length(models_sc)){
+row_index<-which(nodes==complete_nodes[[i]])
+col_index<-which(events==complete_events[[i]])
+if (is.nan(models_sc[[i]]$fscore)){model_matrix[row_index,col_index]<-0}
+else{model_matrix[row_index,col_index]<-models_sc[[i]]$fscore}
+}
+```
+
+Let's now extract some insightful analytics.
+
+* First, let's see how many models were correctly created and how many models failed to create:
+
+```{r,echo=FALSE}
+possible_models<-length(which(!is.na(model_matrix)))
+created_models<-length(which(model_matrix>0))
+failed_models<-length(which(model_matrix==0))
+print(c("Possible models:",possible_models))
+print(c("Created models:",created_models))
+print(c("Failed models:",failed_models))
+```
+The percentage of created models is a `r created_models*100/possible_models`%. A logical result, as each model has now far fewer data to train.
+
+* Now, we'll study obtained fscores in the 563 correctly created models:
+  
+  ```{r,echo=FALSE,results='markup'}
+ggplot()+geom_histogram(aes(x=model_matrix[model_matrix>0]),fill="light blue",color="blue")+xlab("fscore")+ylab("Model amount")+ggtitle("Version 3 Model fscore")
+```
+The histogram shows good results for the models that actually work. A `r length(which(model_matrix>0.8999))*100/created_models`% (`r length(which(model_matrix>0.8999))` models) is at least 0.9 and a `r length(which(model_matrix>0.7999))*100/created_models`% (`r length(which(model_matrix>0.7999))` models) is at least 0.8. The average obtained fscore of the created models is `r mean(model_matrix[model_matrix>0],na.rm=TRUE)`, a slightly lower amount compared to the one found in the previous iteration. These models are hugely simpler than those, though, which makes still a feasible option in deployment.
+
+* Lastly, we will study which critical events were correctly modelled and their fscore. There are three different critical events on the system, which we will study separately:
+  
+  * 96731154: this event indicates a critical threshold violation. It only appears in two nodes. 
+```{r, echo=FALSE}
+event_index<-which(colnames(model_matrix)=="96731154")
+event_vector<-model_matrix[,event_index]
+created_models<-event_vector[!is.na(event_vector)]
+created_models
+```
+
+* 68917: this event's message points that a device hast stopped responding to external requests and/or polls. It is greatly associated with a change in the network on the 1st of June.
+```{r, echo=FALSE}
+  event_index<-which(colnames(model_matrix)=="68917")
+  event_vector<-model_matrix[,event_index]
+  created_models<-event_vector[!is.na(event_vector)]
+  created_models
+```
+A total of `r length(created_models)` models are created, out of which `r length(which(created_models>0))` were correctly created, this is, a `r length(which(created_models>0))*100/length(created_models)`%, with an average fscore of  `r mean(created_models[created_models>0],na.rm=TRUE)` and a standard deviation of `r sd(created_models[created_models>0],na.rm=TRUE)/2`. 
+
+
+    * 69481:this event's message poitns that a whole chassis has stopped responding to polls. While it is greatly correlated to the 1st of June configuration change, there are several instances in which it repeats without the appearance of the previous critical event.
+```{r, echo=FALSE}
+event_index<-which(colnames(model_matrix)=="69481")
+event_vector<-model_matrix[,event_index]
+created_models<-event_vector[!is.na(event_vector)]
+created_models
+```
+A total of `r length(created_models)` models are created, out of which `r length(which(created_models>0))` were correctly created, this is, a `r length(which(created_models>0))*100/length(created_models)`%, with an average fscore of  `r mean(created_models[created_models>0],na.rm=TRUE)` and a standard deviation of `r sd(created_models[created_models>0],na.rm=TRUE)/2`. 
+
+
+##Conclusions
+
+Adding the CPU consumption has increased the amount of created models and also increased (though in a really small amount) the average fscore, but has decreased the performance of the critical events models. In a model with 1400 input variables it is expected for a single variable not to cause a huge change in performance. It is probable to see a larger change with every resource consumption variable.

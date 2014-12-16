@@ -1,0 +1,307 @@
+---
+title: "Zero Proportion Analysis"
+author: "L3P3"
+date: "Friday, November 28, 2014"
+output: pdf_document
+---
+This document analyzes the model performance based on the proportion of zeros added to the ones in the model and compares it with the model without the zero proportion adjustment phase. We will compare the models in terms of created models, execution time, precision, recall and fscore and decide which zero proportion is the optimal one. 
+
+#Introduction
+
+We are going to study the influence of the zero proportion added to the ones of the dataset in the dataset split phase. We do so to reduce the amount of zeroes present in our datasets to improve computation time and the performance of the models, based on the paper "Logistic Regression for Rare Events". 
+```{r, echo=FALSE}
+load("models_and_times.Rdata")
+```
+
+#Amount of created models
+```{r,echo=FALSE}
+created_models<-numeric(length=16)
+for (i in 1:length(models$no_zeros_models)){
+  if (!is.null(models$no_zeros_models[[i]]$model)){
+      created_models[1]<-created_models[1]+1
+    }
+}
+for (i in 1:length(models$zeros_models)){
+  for (j in 1:length(models$zeros_models[[i]])){
+    if (!is.null(models$zeros_models[[i]][[j]]$model)){
+      created_models[i+1]<-created_models[i+1]+1
+    }
+  }
+}
+created_models<-t(data.frame(created_models))
+colnames(created_models)<-c("No proportion",1:15)
+```
+From a total of 78 possible models, this was the amoutn created in each case: `r created_models`
+
+The proportion of zeroes added doesn't seem to affect the amount of created models.
+
+```{r, echo=FALSE}
+#Response calculation
+
+###No proportion testing
+require(glmnet)
+results_no_zeros<-list()
+for (j in 1:length(models$test)){
+  model<-models$no_zeros_models[[j]]$model
+  if (!is.null(model)){
+    input<- models$test[[j]][,2:(length(models$test[[j]])-1)]
+    output<-models$test[[j]][,length(models$test[[j]])]
+    
+    input_matrix<-matrix(nrow=dim(input)[1],ncol=dim(input)[2])
+    input_matrix[which(input==TRUE)]<-1
+    input_matrix[which(input==FALSE)]<-0
+    
+    output[which(output==TRUE)]<-1
+    output[which(output==FALSE)]<-0
+    output<-factor(output)
+    
+    prediction<-factor(as.numeric(predict(model,newx=input_matrix,type="class",s="lambda.min")))
+    test_table<-data.frame(pred=prediction,real=output)
+    
+    confusion_matrix<-matrix(nrow=2,ncol=2)
+    confusion_matrix[1,1]<-length(which(test_table[,1]==1&test_table[,2]==1))
+    confusion_matrix[2,1]<-length(which(test_table[,1]==0&test_table[,2]==1))
+    confusion_matrix[1,2]<-length(which(test_table[,1]==1&test_table[,2]==0))
+    confusion_matrix[2,2]<-length(which(test_table[,1]==0&test_table[,2]==0))
+    
+    if (sum(confusion_matrix[1,])==0){
+      precision<-0
+    }else{
+      precision<-confusion_matrix[1,1]/sum(confusion_matrix[1,])}
+    
+    if (sum(confusion_matrix[1,])==0){
+      recall<-0
+    }else{recall<-confusion_matrix[1,1]/sum(confusion_matrix[,1])}
+    fscore<-2*precision*recall/(precision+recall)
+    results_no_zeros[[j]]<-list("confusion_matrix"=confusion_matrix,"precision"=precision,"recall"=recall,"fscore"=fscore)
+  }
+}
+
+##Zero proportioned models performance
+results<-list()
+for (i in 1:length(models$zeros_models)){
+  #print(i)
+  results[[i]]<-list()
+  for (j in 1:length(models$test)){
+  #print(j)
+  model<-models$zeros_models[[i]][[j]]$model
+  if (!is.null(model)){
+    input<- models$test[[j]][,2:(length(models$test[[j]])-1)]
+    output<-models$test[[j]][,length(models$test[[j]])]
+    
+    input_matrix<-matrix(nrow=dim(input)[1],ncol=dim(input)[2])
+    input_matrix[which(input==TRUE)]<-1
+    input_matrix[which(input==FALSE)]<-0
+    
+    output[which(output==TRUE)]<-1
+    output[which(output==FALSE)]<-0
+    output<-factor(output)
+    
+    prediction<-factor(as.numeric(predict(model,newx=input_matrix,type="class",s="lambda.min")))
+    test_table<-data.frame(pred=prediction,real=output)
+    
+    confusion_matrix<-matrix(nrow=2,ncol=2)
+    confusion_matrix[1,1]<-length(which(test_table[,1]==1&test_table[,2]==1))
+    confusion_matrix[2,1]<-length(which(test_table[,1]==0&test_table[,2]==1))
+    confusion_matrix[1,2]<-length(which(test_table[,1]==1&test_table[,2]==0))
+    confusion_matrix[2,2]<-length(which(test_table[,1]==0&test_table[,2]==0))
+    
+    if (sum(confusion_matrix[1,])==0){
+      precision<-0
+    }else{
+      precision<-confusion_matrix[1,1]/sum(confusion_matrix[1,])}
+    
+    if (sum(confusion_matrix[1,])==0){
+      recall<-0
+    }else{recall<-confusion_matrix[1,1]/sum(confusion_matrix[,1])}
+    fscore<-2*precision*recall/(precision+recall)
+    results[[i]][[j]]<-list("confusion_matrix"=confusion_matrix,"precision"=precision,"recall"=recall,"fscore"=fscore)
+    }
+  }
+}
+
+```
+
+
+#Obtained Precision
+```{r, echo=FALSE}
+prec_df<-data.frame(matrix(nrow=78,ncol=16))
+names(prec_df)<-c("No proportion",1:15)
+rownames(prec_df)<-names(models$no_zeros_models)
+extract_precision<-function(lst){
+  precision<-numeric()
+  for (i in 1:length(lst)){
+    precision[i]<-lst[[i]]$precision
+  }
+  return(precision)
+}
+prec_df[,1]<-extract_precision(models$no_zeros_models)
+prec_df[,2]<-extract_precision(models$zeros_models[[1]])
+prec_df[,3]<-extract_precision(models$zeros_models[[2]])
+prec_df[,4]<-extract_precision(models$zeros_models[[3]])
+prec_df[,5]<-extract_precision(models$zeros_models[[4]])
+prec_df[,6]<-extract_precision(models$zeros_models[[5]])
+prec_df[,7]<-extract_precision(models$zeros_models[[6]])
+prec_df[,8]<-extract_precision(models$zeros_models[[7]])
+prec_df[,9]<-extract_precision(models$zeros_models[[8]])
+prec_df[,10]<-extract_precision(models$zeros_models[[9]])
+prec_df[,11]<-extract_precision(models$zeros_models[[10]])
+prec_df[,12]<-extract_precision(models$zeros_models[[11]])
+prec_df[,13]<-extract_precision(models$zeros_models[[12]])
+prec_df[,14]<-extract_precision(models$zeros_models[[13]])
+prec_df[,15]<-extract_precision(models$zeros_models[[14]])
+prec_df[,16]<-extract_precision(models$zeros_models[[15]])
+```
+
+Even though precision is not a key deciding parameter, we still can gain some insight by studying it. In average, this is how it varies in the experiments:
+```{r}
+require(ggplot2)
+mean_vec<-apply(prec_df,2,function(x){mean(x,na.rm=TRUE)})
+ggplot()+geom_point(aes(x= factor(names(prec_df),levels=names(mean_vec)),y=mean_vec),size=3)+xlab("Zero to One Proportion")+ylab("Average Precision")+ylim(c(0.4,1))
+```
+
+The maximum precision is obtained when the zero proportion is 13.
+
+#Obtained Recall
+```{r, echo=FALSE}
+rec_df<-data.frame(matrix(nrow=78,ncol=16))
+names(rec_df)<-c("No proportion",1:15)
+rownames(rec_df)<-names(models$no_zeros_models)
+extract_recall<-function(lst){
+  recall<-numeric()
+  for (i in 1:length(lst)){
+    recall[i]<-lst[[i]]$recall
+  }
+  return(recall)
+}
+rec_df[,1]<-extract_recall(models$no_zeros_models)
+rec_df[,2]<-extract_recall(models$zeros_models[[1]])
+rec_df[,3]<-extract_recall(models$zeros_models[[2]])
+rec_df[,4]<-extract_recall(models$zeros_models[[3]])
+rec_df[,5]<-extract_recall(models$zeros_models[[4]])
+rec_df[,6]<-extract_recall(models$zeros_models[[5]])
+rec_df[,7]<-extract_recall(models$zeros_models[[6]])
+rec_df[,8]<-extract_recall(models$zeros_models[[7]])
+rec_df[,9]<-extract_recall(models$zeros_models[[8]])
+rec_df[,10]<-extract_recall(models$zeros_models[[9]])
+rec_df[,11]<-extract_recall(models$zeros_models[[10]])
+rec_df[,12]<-extract_recall(models$zeros_models[[11]])
+rec_df[,13]<-extract_recall(models$zeros_models[[12]])
+rec_df[,14]<-extract_recall(models$zeros_models[[13]])
+rec_df[,15]<-extract_recall(models$zeros_models[[14]])
+rec_df[,16]<-extract_recall(models$zeros_models[[15]])
+```
+
+Even though recall is not a key deciding parameter, we still can gain some insight by studying it. In average, this is how it varies in the experiments:
+```{r}
+require(ggplot2)
+mean_vec<-apply(rec_df,2,function(x){mean(x,na.rm=TRUE)})
+ggplot()+geom_point(aes(x= factor(names(rec_df),levels=names(mean_vec)),y=mean_vec),size=3)+xlab("Zero to One Proportion")+ylab("Average recall")+ylim(c(0.4,1))
+```
+
+The maximum recall is obtained when the zero proportion is 1, but taking into account that precision was very low in this case, the next one is 13.
+
+#Obtained fscore
+```{r, echo=FALSE}
+fsc_df<-data.frame(matrix(nrow=78,ncol=16))
+names(fsc_df)<-c("No proportion",1:15)
+rownames(fsc_df)<-names(models$no_zeros_models)
+extract_fscore<-function(lst){
+  fscore<-numeric()
+  for (i in 1:length(lst)){
+    fscore[i]<-lst[[i]]$fscore
+  }
+  return(fscore)
+}
+fsc_df[,1]<-extract_fscore(models$no_zeros_models)
+fsc_df[,2]<-extract_fscore(models$zeros_models[[1]])
+fsc_df[,3]<-extract_fscore(models$zeros_models[[2]])
+fsc_df[,4]<-extract_fscore(models$zeros_models[[3]])
+fsc_df[,5]<-extract_fscore(models$zeros_models[[4]])
+fsc_df[,6]<-extract_fscore(models$zeros_models[[5]])
+fsc_df[,7]<-extract_fscore(models$zeros_models[[6]])
+fsc_df[,8]<-extract_fscore(models$zeros_models[[7]])
+fsc_df[,9]<-extract_fscore(models$zeros_models[[8]])
+fsc_df[,10]<-extract_fscore(models$zeros_models[[9]])
+fsc_df[,11]<-extract_fscore(models$zeros_models[[10]])
+fsc_df[,12]<-extract_fscore(models$zeros_models[[11]])
+fsc_df[,13]<-extract_fscore(models$zeros_models[[12]])
+fsc_df[,14]<-extract_fscore(models$zeros_models[[13]])
+fsc_df[,15]<-extract_fscore(models$zeros_models[[14]])
+fsc_df[,16]<-extract_fscore(models$zeros_models[[15]])
+```
+
+The fscore is, indeed, a key deciding parameter, so this parameter will make us decide which is the optimal amount of proportion of zeros.
+```{r}
+require(ggplot2)
+mean_vec<-apply(fsc_df,2,function(x){mean(x,na.rm=TRUE)})
+ggplot()+geom_point(aes(x= factor(names(fsc_df),levels=names(mean_vec)),y=mean_vec),size=3)+xlab("Zero to One Proportion")+ylab("Average fscore")+ylim(c(0.4,1))
+```
+
+The maximum fscore is obtained when the zero proportion is 3.There is another point to consider: the amount of non-zero models, this is, the amount of models that were succesful. This amount is:
+
+```{r, echo=FALSE}
+ t(apply(fsc_df,2,function(x){return(length(which(x>0)))}))
+```
+So it is clear that a zero proportion of 3 is, actually, the amount that produces less successful models. So now we take a different approach: we now check, for each event, which zero proportion gave the maximum fscore and summarize it:
+```{r,echo=FALSE}
+find_appearances_list<-function(lst,value){
+  count<-0
+  for (i in 1:length(lst)){
+    if (value %in% lst[[i]]){count<-count+1}
+  }
+  return(count)
+}
+tmp<-apply(fsc_df,1,function(x) {which(x==max(x))})
+appearances<-c(find_appearances_list(tmp,value=1),find_appearances_list(tmp,value=2),find_appearances_list(tmp,value=3),find_appearances_list(tmp,value=4),find_appearances_list(tmp,value=5),find_appearances_list(tmp,value=6),find_appearances_list(tmp,value=7),find_appearances_list(tmp,value=8),find_appearances_list(tmp,value=9),find_appearances_list(tmp,value=10),find_appearances_list(tmp,value=11),find_appearances_list(tmp,value=12),find_appearances_list(tmp,value=13),find_appearances_list(tmp,value=14),find_appearances_list(tmp,value=15),find_appearances_list(tmp,value=16))
+ggplot()+geom_bar(aes(x=factor(names(fsc_df),levels=names(fsc_df)),y=appearances),fill="light blue")+xlab("Zero to One Proportion")+ylab("Times model is  the best one")+ylim(c(0,10))
+```
+This figure adds an interesting point: even though there are less models created when the proportion is 4 and it is not the option that gets the best average fscore, this is the option that consistently produces best results. To check for possible explanations, we now plot the standard deviation of each option's fscore:
+```{r,echo=FALSE}
+ggplot()+geom_bar(aes(x=factor(names(fsc_df),levels=names(fsc_df)),y=apply(fsc_df,2,function(x){sd(x,na.rm=TRUE)})),fill="Light blue",stat="identity")+xlab("Zero to One Proportion")+ylab("Standard Deviation")+geom_line(aes(x=factor(names(fsc_df),levels=names(fsc_df)),y=apply(fsc_df,2,function(x){sd(x,na.rm=TRUE)}),group=1),color="black",size=2)
+```
+This chart shows how the option 4 can be higher more times than the third one and at the same time have a lower average fscore: it also has more low values.
+
+To add together both informations we now plot each average fscore with its error bars:
+
+```{r,echo=FALSE}
+sds<-apply(fsc_df,2,function(x){sd(x,na.rm=TRUE)})/2
+means<-apply(fsc_df,2,function(x){mean(x,na.rm=TRUE)})
+limits <- aes(x=factor(names(fsc_df),levels=names(fsc_df)),ymax =means+sds, ymin=means-sds)
+ggplot()+geom_point(aes(x= factor(names(fsc_df),levels=names(mean_vec)),y=mean_vec),size=5)+xlab("Zero to One Proportion")+ylab("Average F-score")+ylim(c(0.6,1))+geom_errorbar(limits, width=0.25)
+```
+
+#computation Time
+
+As a last criteria, we now compare the computation time for each option:
+
+```{r,echo=FALSE}
+time_vec<-c(models$times[[1]][[3]])
+for (i in 1:length(models$times[[2]])){
+  time_vec<-c(time_vec,models$times[[2]][[i]][[3]])
+}
+ggplot()+geom_point(aes(x= factor(names(fsc_df),levels=names(mean_vec)),y=time_vec))+xlab("Zero to One Proportion")+ylab("Seconds")
+```
+
+This figure shows that adding the proportioning phase divides the computation time by, at least, a factor of 22.To further study the effect of the actual proportion of zeroes added, we now plot only that part of the chart:
+```{r, echo=FALSE}
+ggplot()+geom_point(aes(x=factor(as.character(01:15),levels=1:15),y=time_vec[-1]))+xlab("Zero to One Proportion")+ylab("Seconds")
+```
+Unsurprisingly, the computation time for each iteration is a linear function of the amount of zeroes added.In fact, we can model it as:
+```{r,echo=FALSE}
+proportion<-1:15
+linear_model<-lm(time_vec[-1]~proportion)
+summary(linear_model)
+```
+And, trying to generalize setting the time for a 1:1 proportion as 1, the model we get is: 
+```{r,echo=FALSE}
+time_vec_new<-time_vec[-1]/min(time_vec[-1])
+linear_model_2<-lm(time_vec_new~proportion)
+summary(linear_model_2)
+```
+This model allows us to predict how long it will take for a specific model compared to the time it would take to fit the model with a 1:1 zero proportion, as $times = \alpha+\beta*zero_proportion$, where $\alpha$ = `r coef(linear_model_2)[1]` and $\beta$ = `r coef(linear_model_2)[2]`.
+
+#Conclusion
+
+Through this analysis we can conclude that the best option for our experiments is to keep a proportion of 3 samples of zeroes to ones.
+

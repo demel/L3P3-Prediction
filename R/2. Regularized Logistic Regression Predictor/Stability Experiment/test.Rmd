@@ -1,0 +1,116 @@
+---
+title: "Preprocessing Stability Experiment"
+author: "L3P3"
+date: "Friday, October 17, 2014"
+output: pdf_document
+---
+#1. Introduction
+In this document we will check the stability of the data preprocessing method proposed in the elastic net algorithm for the network level. To do so, we ran the model over the four available months of SCF data with 5 minutes of observation and prediction window twenty times. Checking the models' performance we will be able to check if the preprocessing phase affects the behaviour of the models. We assumed that the window span did not affect the final result in terms of stability. First we load the list containing the created models.They were created using the code found in the 'rlr-whole.R' file.
+
+```{r, echo=FALSE}
+require(ggplot2)
+load('model_list_v2.Rdata')
+model_list<-model_list_v2
+```
+
+#2. Stability Check
+Now we will run several tests to check the model performance and behaviour is similar in each iteration.
+
+## a) Number of Created Models
+The first check will test how many models were created in each iteration.
+```{r, echo=FALSE}
+extract_fscore<-function(data){
+  result<-numeric()
+  j<-1
+  for (i in 1:length(data)){
+    if (!is.nan(data[[i]]$fscore)){
+      result[j]<-data[[i]]$fscore
+      j<-j+1
+    }
+  }
+  return(result)
+}
+models_length<-numeric()
+for (i in 1:length(model_list)){
+    models_length[i]<-length(extract_fscore(model_list[[i]]))
+}
+summary(models_length)
+show(c("Standard Deviation:",sd(models_length)))
+```
+So we see how the maximum difference can be three models up between iterations, a `r 300/78`% variation. This, indeed, does not seem like a large rate but it could mean not modelling a critical event. To check exactly which events are affected, on the next section we will study how each individual event was modelled.
+
+## b) Individual Events Performance
+We will now create a large table with every modelled event, each iteration's performance, the average fscore and the standard deviation. This test will give large insights about the effect of the preprocessing phase.
+
+```{r,echo=FALSE}
+extract_complete_fscore<-function(data){
+  result<-numeric()
+  j<-1
+  for (i in 1:length(data)){
+      result[j]<-data[[i]]$fscore
+      j<-j+1
+  }
+  return(result)
+}
+fscore_df<-data.frame(matrix(nrow=length(model_list[[1]]),ncol=length(model_list)+4))
+names(fscore_df)<-c(as.character(1:20),"Average","Standard_Deviation","Created_Models","Percentage")
+rownames(fscore_df)<-names(model_list[[1]])
+for (i in 1:length(model_list)){
+  row<-extract_complete_fscore(model_list[[i]])
+  fscore_df[,i]<-c(row)
+}
+for (i in 1:length(model_list[[1]])){
+fscore_df[i,length(model_list)+1]<-mean(as.numeric(fscore_df[i,1:length(model_list)]),na.rm=TRUE)
+fscore_df[i,length(model_list)+2]<-sd(as.numeric(fscore_df[i,1:length(model_list)]),na.rm=TRUE)
+fscore_df[i,length(model_list)+3]<-length(which(!is.nan(as.numeric(fscore_df[i,1:length(model_list)]))))
+fscore_df[i,length(model_list)+4]<-fscore_df[i,length(model_list)+3]*100/length(model_list)
+}
+```
+First, we will study the deviation in created models for each event, which can be seen on Fig.(1).
+```{r,echo=FALSE}
+plot1<-ggplot(fscore_df)+geom_histogram(aes_string(x='Created_Models'),binwidth=1,fill="light blue")+xlab("Created Models")  
+plot1+ggtitle("Figure 1. Amount of created models per modelled event")
+```
+Out of 78 different events, `r length(which(fscore_df$Created_Models==20|fscore_df$Created_Models==0))` events show a similar pattern in the 20 iterations, and `r length(which(!(fscore_df$Created_Models==20|fscore_df$Created_Models==0)))` show some discrepancy between iterations. In terms of performance, Fig.(2) shows the average f-score obtained for each event and the standard deviation for each one, whereas the color indicates the amount of models created for each event.
+
+```{r,echo=FALSE}
+sd_2<-(fscore_df$Standard_Deviation[!is.nan(fscore_df$Average)]/2)
+sd_2[is.na(sd_2)]<-0
+f_average<-fscore_df$Average[!is.nan(fscore_df$Average)]
+limits <- aes(x=rownames(plot_df),ymax =f_average+sd_2, ymin=f_average-sd_2)
+plot_df<-fscore_df[!is.nan(fscore_df$Average),]
+critical<-logical(length(rownames(plot_df)))
+crit_events<-c("96731154","68917","69481")
+plot_df<-cbind(plot_df,rownames(plot_df)%in%crit_events)
+names(plot_df)[length(names(plot_df))]<-"Critical"
+#instance_amount<-numeric()
+#for (i in 1:length(rownames(plot_df))){
+ # instance_amount[i]<-dim(data_old[data_old$Event_Type==rownames(plot_df)[i],])[1]
+#   if(amount<21){instance_amount[i]<-"i<21"}
+#   if(amount>20&amount<41){instance_amount[i]<-"20<i<41"}
+#   if(amount>40&amount<61){instance_amount[i]<-"40<i<61"}
+#   if(amount>60&amount<81){instance_amount[i]<-"60<i<81"}
+#   if(amount>80&amount<101){instance_amount[i]<-"80<i<101"}
+#   if(amount>100&amount<301){instance_amount[i]<-"100<i<301"}
+#   if(amount>300&amount<601){instance_amount[i]<-"300<i<601"}
+#   if(amount>600&amount<1001){instance_amount[i]<-"600<i<1001"}
+#   if(amount>1000&amount<3001){instance_amount[i]<-"1000<i<3001"}
+#   if(amount>3000){instance_amount[i]<-"i>3000"}
+#}
+#instance_amount<-ordered(instance_amount,levels=c("i<21","20<i<41","40<i<61","60<i<81","80<i<101","100<i<301","300<i<601","600<i<1001","1000<i<3001","i>3000"))
+
+plot2<-ggplot(plot_df)+geom_point(aes(x=rownames(plot_df),y=plot_df$Average,color=plot_df$Critical,size=plot_df$Critical))+xlab('Event')+ylab('F-score')+geom_errorbar(limits, width=0.25)+ theme(axis.ticks.x= element_blank(),axis.text.x = element_blank())+labs(color="Is the event critical?")+scale_color_manual(values=c("black","red"))+scale_size_manual(values=c(2,4))+guides(size=FALSE)
+plot2
+```
+The performance is all right for a lot of models, but shows large deviations for a few events. This is not good. To further understand the problem at hand, we will now plot the standard deviation of the models over the amount of training instances for each case
+
+```{r, echo=FALSE, warning=FALSE}
+instance_vector<-numeric()
+for (i in 1:length(rownames(plot_df))){
+  instance_vector[i]<-length(which(data_old$Event_Type==rownames(plot_df)[i]))*0.6
+}
+
+plot3<-ggplot(plot_df)+geom_point(aes(x=instance_vector,y=Standard_Deviation))+xlab("Training Instances")+ylab("Standard Deviation")
+```
+Again, this shows little to none relation, as further suggested by a low correlation value of `r cor(data.frame("instances"=instance_vector,"sd"=plot_df$Standard_Deviation),use="pairwise.complete.obs")[2]`.
+

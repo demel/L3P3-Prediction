@@ -1,0 +1,112 @@
+---
+title: "Node Awareness in Elastic Net"
+author: "L3P3 Center for Open Middleware"
+date: "Thursday, October 02, 2014"
+output: pdf_document
+---
+
+This document summarizes the work done in order to expand the elastic net regularized predictor to include node awareness. This first iteration separates the events data by the node they happened in and then tries to establish elastic net models for each event in each node. The whole process of model creation is described in the file "nen-analytics.R", found in the private L3P3 Github repository. The models are exported in a variable called "node_separated_model_list", which is a list of all the nodes in the system, containing each one a list of models for the events that happened on the system. 
+
+```{r}
+load('data.Rdata')
+head(summary(node_separated_model_list))
+```
+
+Our objective is now to study the performance of this models. To do so, we're going to create a matrix where the rows are the system nodes and the columns are the events that happened on the system. The coefficients of the matrix will be the f-score of each model in each node.
+```{r,echo=FALSE}
+extract_unique_events<-function(data){
+  events<-NULL
+  for (i in 1:length(data)){
+    events<-c(events,names(data[[i]]))
+  }
+  events<-unique(events)
+  return(events)
+}
+```
+
+```{r,}
+events<-extract_unique_events(node_separated_model_list)
+model_matrix<-matrix(nrow=length(node_separated_model_list),ncol=length(events))
+colnames(model_matrix)<-events
+rownames(model_matrix)<-names(node_separated_model_list)
+for (i in 1:nrow(model_matrix)){
+  for (j in 1:ncol(model_matrix)){
+    model_index<-which(names(node_separated_model_list[[i]])==colnames(model_matrix)[j])
+    if (length(model_index)==0){ #The event doesn't happen in that node
+      model_matrix[i,j]<-NaN
+      }
+    else{
+      model_matrix[i,j]<-node_separated_model_list[[i]][[model_index]]$fscore
+    }
+  }
+}
+model_matrix[1:5,1:5]
+```
+
+Let's now extract some insightful analytics.
+
+* First, let's see how many models were correctly created out of the possible amount for each node and the average fscore for each node's models:
+
+```{r,echo=FALSE,results='markup'}
+correct_models_frame<-data.frame(matrix(nrow=nrow(model_matrix),ncol=4))
+colnames(correct_models_frame)<-c("Events","Models","Percentage","Average fscore")
+rownames(correct_models_frame)<-rownames(model_matrix)
+for (i in 1:nrow(correct_models_frame)){
+  correct_models_frame[i,2]<-length(which(model_matrix[i,]>0))  #Non-zero models
+  correct_models_frame[i,1]<-length(unique(whole_data$type[whole_data$node==rownames(correct_models_frame)[i]]))  #Total possible models
+  correct_models_frame[i,3]<-paste(round(100*correct_models_frame[i,2]/correct_models_frame[i,1],digits=2),"%",sep="")
+  correct_models_frame[i,4]<-mean(model_matrix[i,],na.rm=TRUE)
+}
+correct_models_frame
+```
+  Even though most of the events are not captured, the ones that are modelled show good performance. 
+  
+* Now, we'll study the number of nodes an event appears in, the amount of models created for that certain event and the average fscore for that model:
+
+```{r,echo=FALSE,results='markup'}
+critical_events<-as.character(unique(whole_data$type[whole_data$severity=="Critical"]))
+major_events   <-as.character(unique(whole_data$type[whole_data$severity=="Major"]))
+minor_events   <-as.character(unique(whole_data$type[whole_data$severity=="Minor"]))
+blank_events   <-as.character(unique(whole_data$type[whole_data$severity=="Blank"]))
+
+frame_function<-function(data){
+  result<-matrix(nrow=length(data),ncol=4)
+  colnames(result)<-c("Total Nodes","Created Models","Percentage","Average fscore")
+  rownames(result)<-data
+  result<-data.frame(result)
+  for (i in 1:nrow(result)){
+    result[i,1]<-length(unique(whole_data$node[whole_data$type==rownames(result)[i]]))  #Total possible models
+    event_index<-which(colnames(model_matrix)==data[i])
+    result[i,2]<-length(which(model_matrix[,event_index]>0))  #Non-zero models
+    result[i,3]<-paste(round(100*result[i,2]/result[i,1],digits=2),"%",sep="")
+    result[i,4]<-mean(model_matrix[,event_index],na.rm=TRUE)
+  }
+  return(result)
+}
+
+critical_events_nodes_frame<-frame_function(critical_events)
+major_events_nodes_frame   <-frame_function(major_events)
+minor_events_nodes_frame   <-frame_function(minor_events)
+blank_events_nodes_frame   <-frame_function(blank_events)
+```
+#####Critical Severity
+```{r, echo=FALSE,results='markup'}
+critical_events_nodes_frame
+```
+#####Major Severity
+```{r, echo=FALSE,results='markup'}
+major_events_nodes_frame
+```
+#####Minor Severity
+```{r, echo=FALSE,results='markup'}
+minor_events_nodes_frame
+```
+#####Blank Severity
+```{r, echo=FALSE,results='markup'}
+blank_events_nodes_frame
+```
+Again, it looks like the performance here follows an "all-or-nothing" pattern: there are a lot of nods where patterns where not captured, but when they are the performance is really high.
+
+The total possible models are `r sum(correct_models_frame[,1])`, whereas the amount of created models is `r length(which(model_matrix>0))`, making a percentage of  `r paste(round(100*length(which(model_matrix>0))/sum(correct_models_frame[,1]),digits=2),"%",sep="")` modelled events.
+
+Taking into account the performance of the created models, most of them could be incorporated into our predictor proof of concept black box.
